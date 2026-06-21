@@ -212,20 +212,17 @@ function buildAuditMessage(input: {
     input.commitSha ? `Commit SHA: ${input.commitSha}` : undefined,
     "",
     "Steps:",
-    `1. Call audit_web_app with url=${JSON.stringify(input.deploymentUrl)}, maxPages=${input.maxPages}, maxClicksPerPage=${input.maxClicksPerPage}.`,
-    "2. Summarize the highest-priority findings, pages visited, clicks tested, skipped destructive controls, and screenshot artifact paths.",
-    `3. Call publish_vercel_deployment_check with deploymentId=${JSON.stringify(input.deploymentId)}, externalId=${JSON.stringify(input.deploymentId)}, the audit status as auditStatus, and reportMarkdown from audit_web_app. If it returns skipped, continue.`,
+    `1. Call audit_vercel_preview_deployment with deploymentUrl=${JSON.stringify(input.deploymentUrl)}, deploymentId=${JSON.stringify(input.deploymentId)}, eventType=${JSON.stringify(input.eventType)}, target=${JSON.stringify(input.target)}, maxPages=${input.maxPages}, and maxClicksPerPage=${input.maxClicksPerPage}.`,
+    "2. Include owner, repo, and commitSha in that tool call when present in this message.",
+    "3. Summarize the returned audit and publications: native Vercel check, GitHub check run, PR resolution, and PR comment.",
   ];
 
   if (input.owner && input.repo && input.commitSha) {
     lines.push(
-      `4. Call publish_github_check_run for ${input.owner}/${input.repo} at ${input.commitSha}, using deployment ID ${input.deploymentId} as externalId, the audit status as auditStatus, and reportMarkdown from audit_web_app.`,
-      `5. Call resolve_github_pull_request for ${input.owner}/${input.repo} at ${input.commitSha}.`,
-      "6. If a pull request is found, call publish_github_pr_report with the audit reportMarkdown returned by audit_web_app.",
-      "7. If no pull request is found, finish with the report and the check results.",
+      `GitHub tool-call fields: owner=${JSON.stringify(input.owner)}, repo=${JSON.stringify(input.repo)}, commitSha=${JSON.stringify(input.commitSha)}.`,
     );
   } else {
-    lines.push("4. GitHub repository metadata was missing, so finish with the report and skip GitHub publishing.");
+    lines.push("GitHub repository metadata was missing, so the orchestration tool should skip GitHub publishing.");
   }
 
   return `${lines.filter(Boolean).join("\n")}\n`;
