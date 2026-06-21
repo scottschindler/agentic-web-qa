@@ -1,7 +1,7 @@
 {
   "name": "agentic-web-qa",
   "version": "0.1.0",
-  "description": "A reusable GitHub Action and Eve agent that audits web app previews with Playwright.",
+  "description": "A reusable Eve agent that audits Vercel preview deployments with Playwright and Vercel Sandbox.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -15,7 +15,6 @@
     "agentic-qa",
     "ai-agent",
     "eve",
-    "github-action",
     "playwright",
     "preview-deployments",
     "vercel"

@@ -28,12 +28,16 @@ Vercel Preview Deployment ready
 -> Vercel webhook starts the Eve agent
 -> Eve durable task checkpoints the audit
 -> audit_vercel_preview_deployment orchestrates the pipeline
--> audit_web_app logic runs Playwright in Vercel Sandbox
--> Eve summarizes JSON, Markdown, and screenshot artifact paths
+-> Eve tool starts Vercel Sandbox
+-> Sandbox installs/runs Playwright + Chromium
+-> Sandbox returns JSON, Markdown, and screenshot artifact paths
+-> Eve summarizes the audit
 -> Eve optionally updates a native Vercel Deployment Check
 -> Vercel Connect gets a scoped GitHub token
 -> Eve posts or updates a GitHub Check Run and PR comment
 ```
+
+No GitHub Action is required for that flow. The Vercel webhook is the external trigger. Eve's durable task runtime is what keeps the started audit resumable, retryable, and checkpointed; it does not replace the webhook. The Vercel Checks API is an output surface for publishing deployment status, not the trigger for this version of the agent.
 
 ### 1. Deploy the Eve agent
 
@@ -95,16 +99,20 @@ issues:write
 In the Vercel dashboard for the app you want to audit, create a webhook for preview deployment-ready events and point it at the deployed Eve agent:
 
 ```text
-https://<agent-project>.vercel.app/eve/v1/vercel/deployment
+https://<agent-project>.vercel.app/deployment
 ```
 
 Use the `deployment.ready` event. The channel also accepts `deployment.succeeded`, but `deployment.ready` is the normal trigger for auditing a fresh preview URL. The webhook channel ignores production deployments unless `AGENTIC_WEB_QA_AUDIT_PRODUCTION=true`.
 
 After Vercel creates the webhook, copy the displayed webhook secret into the agent project's `AGENTIC_WEB_QA_WEBHOOK_SECRET` environment variable. For manual smoke tests, the same secret can be passed as `Authorization: Bearer <secret>`, `x-agentic-web-qa-secret`, or `?secret=<secret>`.
 
+If the agent project itself has Vercel Authentication or Deployment Protection enabled, the webhook request will be blocked before Eve sees it. Either disable protection for the agent endpoint, use a custom domain that is not protected, configure Trusted Sources, or add a Protection Bypass for Automation token to the webhook URL using Vercel's documented query parameters. Keep `AGENTIC_WEB_QA_WEBHOOK_SECRET` enabled either way; the bypass only gets the request through Vercel protection, while the webhook secret verifies that the request came from Vercel.
+
 The webhook extracts the deployment URL, target, deployment id, GitHub repo, and commit SHA from Vercel metadata. Eve first tries to publish a native Vercel Deployment Check when `VERCEL_CHECKS_OAUTH_TOKEN` is configured. If GitHub metadata is present, Eve also publishes a completed GitHub Check Run for the commit, resolves the associated PR, and posts the report as a sticky comment when a PR exists. If metadata is missing, the agent still finishes the audit and returns the report.
 
 ## Optional: GitHub Action
+
+This is only a fallback packaging path for projects that do not want to deploy the Eve agent. The Vercel-native preview audit above does not use GitHub Actions.
 
 ```yaml
 name: Agentic Web App QA
@@ -344,7 +352,7 @@ Then prompt the Eve TUI:
 Audit https://your-preview-url.vercel.app. Visit up to 5 pages and click up to 8 controls per page.
 ```
 
-The Eve agent is useful for interactive demos and for the Vercel-native webhook flow. The GitHub Action is kept as an optional CI packaging path for projects that do not want to deploy the agent.
+The Eve agent is useful for interactive demos and for the Vercel-native webhook flow. The GitHub Action is kept only as an optional CI packaging path for projects that do not want to deploy the agent.
 
 ## Manual PR Publishing
 
@@ -360,9 +368,9 @@ Vercel Connect handles GitHub credentials. It does not replace the browser runne
 
 ## How It Works
 
-The direct CLI/action audit engine is in `agent/lib/web_qa.ts`. The hosted Eve webhook path enters through `audit_vercel_preview_deployment`, which uses `agent/lib/sandbox_web_qa.ts` to start a sandbox session and run the browser runner seeded under `agent/sandbox/workspace/browser-audit`.
+The direct CLI audit engine and optional CI wrapper are in `agent/lib/web_qa.ts`. The hosted Eve webhook path enters through `audit_vercel_preview_deployment`, which uses `agent/lib/sandbox_web_qa.ts` to start a sandbox session and run the browser runner seeded under `agent/sandbox/workspace/browser-audit`.
 
-1. `agent/channels/vercel.ts` accepts Vercel deployment webhooks at `/eve/v1/vercel/deployment`.
+1. `agent/channels/vercel.ts` accepts Vercel deployment webhooks at `/deployment`.
 2. The channel verifies Vercel's `x-vercel-signature` when `AGENTIC_WEB_QA_WEBHOOK_SECRET` is set, ignores non-ready events, and skips production by default.
 3. The channel starts a durable Eve task with the deployment URL and GitHub metadata.
 4. The task calls `audit_vercel_preview_deployment`, the single orchestration tool for webhook-triggered audits.

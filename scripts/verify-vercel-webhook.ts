@@ -109,7 +109,7 @@ async function verifiesSignedDeploymentReadyWebhook(): Promise<void> {
 
 async function rejectsInvalidSignature(): Promise<void> {
   const response = await route.handler(
-    new Request("https://agent.example.com/eve/v1/vercel/deployment", {
+    new Request("https://agent.example.com/deployment", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -145,7 +145,7 @@ async function ignoresNonReadyEvent(): Promise<void> {
 }
 
 function signedRequest(body: string): Request {
-  return new Request("https://agent.example.com/eve/v1/vercel/deployment", {
+  return new Request("https://agent.example.com/deployment", {
     method: "POST",
     headers: {
       "content-type": "application/json",
