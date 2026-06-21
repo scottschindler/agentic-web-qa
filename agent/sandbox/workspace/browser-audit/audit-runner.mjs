@@ -1,66 +1,8 @@
-import { mkdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { chromium, type Browser, type Page } from "playwright";
-
-export interface WebAppAuditInput {
-  readonly url: string;
-  readonly loginUrl?: string;
-  readonly username?: string;
-  readonly password?: string;
-  readonly usernameSelector?: string;
-  readonly passwordSelector?: string;
-  readonly submitSelector?: string;
-  readonly maxPages?: number;
-  readonly maxClicksPerPage?: number;
-  readonly artifactDir?: string;
-  readonly vercelAutomationBypassSecret?: string;
-}
-
-export type FindingSeverity = "low" | "medium" | "high";
-
-export interface WebAppAuditFinding {
-  readonly severity: FindingSeverity;
-  readonly type:
-    | "blank-page"
-    | "click-failed"
-    | "console-error"
-    | "login-failed"
-    | "navigation-error"
-    | "network-failure"
-    | "page-error";
-  readonly message: string;
-  readonly url: string;
-  readonly screenshot?: string;
-}
-
-export interface ClickRecord {
-  readonly pageUrl: string;
-  readonly label: string;
-  readonly tag: string;
-  readonly result: "clicked" | "failed" | "skipped";
-  readonly reason?: string;
-  readonly finalUrl?: string;
-}
-
-export interface WebAppAuditResult {
-  readonly targetUrl: string;
-  readonly status: "pass" | "warning" | "fail";
-  readonly summary: string;
-  readonly pagesVisited: readonly string[];
-  readonly clicksTested: readonly ClickRecord[];
-  readonly findings: readonly WebAppAuditFinding[];
-  readonly artifactDir: string;
-}
-
-interface Candidate {
-  readonly id: string;
-  readonly tag: string;
-  readonly label: string;
-  readonly href?: string;
-  readonly destructive: boolean;
-}
+import { chromium } from "playwright";
 
 const destructivePattern =
   /\b(delete|remove|destroy|refund|charge|pay|purchase|send|publish|archive|logout|log out|sign out|cancel subscription)\b/i;
@@ -68,22 +10,38 @@ const destructivePattern =
 const defaultMaxPages = 5;
 const defaultMaxClicksPerPage = 8;
 
-export async function runWebAppAudit(input: WebAppAuditInput): Promise<WebAppAuditResult> {
-  const targetUrl = normalizeUrl(input.url);
-  const maxPages = clamp(input.maxPages ?? defaultMaxPages, 1, 20);
-  const maxClicksPerPage = clamp(input.maxClicksPerPage ?? defaultMaxClicksPerPage, 0, 30);
-  const artifactDir = await createArtifactDir(targetUrl, input.artifactDir);
-  const findings: WebAppAuditFinding[] = [];
-  const clicksTested: ClickRecord[] = [];
-  const pagesVisited: string[] = [];
-  const queued = [targetUrl];
-  const seen = new Set<string>();
+const inputPath = process.argv[2] ?? "input.json";
+const jsonPath = process.argv[3] ?? "out/result.json";
+const markdownPath = process.argv[4] ?? "out/report.md";
 
-  let browser: Browser | undefined;
+const input = JSON.parse(await readFile(inputPath, "utf8"));
+const result = await runWebAppAudit(input);
+
+await mkdir(path.dirname(path.resolve(jsonPath)), { recursive: true });
+await mkdir(path.dirname(path.resolve(markdownPath)), { recursive: true });
+await writeFile(jsonPath, `${JSON.stringify(result, null, 2)}\n`);
+await writeFile(markdownPath, formatMarkdown(result));
+
+async function runWebAppAudit(rawInput) {
+  const targetUrl = normalizeUrl(rawInput.url);
+  const maxPages = clamp(rawInput.maxPages ?? defaultMaxPages, 1, 20);
+  const maxClicksPerPage = clamp(rawInput.maxClicksPerPage ?? defaultMaxClicksPerPage, 0, 30);
+  const artifactDir = await createArtifactDir(targetUrl, rawInput.artifactDir);
+  const findings = [];
+  const clicksTested = [];
+  const pagesVisited = [];
+  const queued = [targetUrl];
+  const seen = new Set();
+
+  let browser;
 
   try {
-    browser = await chromium.launch({ headless: true });
-    const extraHTTPHeaders = buildExtraHTTPHeaders(input);
+    browser = await chromium.launch({
+      headless: true,
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
+    const extraHTTPHeaders = buildExtraHTTPHeaders(rawInput);
     const context = await browser.newContext({
       viewport: { width: 1365, height: 900 },
       ...(extraHTTPHeaders ? { extraHTTPHeaders } : {}),
@@ -91,12 +49,12 @@ export async function runWebAppAudit(input: WebAppAuditInput): Promise<WebAppAud
     const page = await context.newPage();
     attachFailureListeners(page, findings, artifactDir);
 
-    if (shouldAttemptLogin(input)) {
-      await login(page, input, findings, artifactDir);
+    if (shouldAttemptLogin(rawInput)) {
+      await login(page, rawInput, findings, artifactDir);
     }
 
     while (queued.length > 0 && pagesVisited.length < maxPages) {
-      const currentUrl = queued.shift()!;
+      const currentUrl = queued.shift();
       if (seen.has(currentUrl)) continue;
       seen.add(currentUrl);
 
@@ -197,7 +155,7 @@ export async function runWebAppAudit(input: WebAppAuditInput): Promise<WebAppAud
   };
 }
 
-function shouldAttemptLogin(input: WebAppAuditInput): boolean {
+function shouldAttemptLogin(input) {
   return Boolean(
     input.loginUrl &&
       input.username &&
@@ -207,16 +165,11 @@ function shouldAttemptLogin(input: WebAppAuditInput): boolean {
   );
 }
 
-async function login(
-  page: Page,
-  input: WebAppAuditInput,
-  findings: WebAppAuditFinding[],
-  artifactDir: string,
-): Promise<void> {
+async function login(page, input, findings, artifactDir) {
   try {
-    await page.goto(input.loginUrl!, { waitUntil: "domcontentloaded", timeout: 15000 });
-    await page.fill(input.usernameSelector!, input.username!, { timeout: 5000 });
-    await page.fill(input.passwordSelector!, input.password!, { timeout: 5000 });
+    await page.goto(input.loginUrl, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.fill(input.usernameSelector, input.username, { timeout: 5000 });
+    await page.fill(input.passwordSelector, input.password, { timeout: 5000 });
 
     if (input.submitSelector) {
       await page.click(input.submitSelector, { timeout: 5000 });
@@ -231,18 +184,13 @@ async function login(
       severity: "high",
       type: "login-failed",
       message: `Login flow failed: ${message}`,
-      url: input.loginUrl!,
+      url: input.loginUrl,
       screenshot: await screenshot(page, artifactDir, "login-failed"),
     });
   }
 }
 
-async function goto(
-  page: Page,
-  url: string,
-  findings: WebAppAuditFinding[],
-  artifactDir: string,
-) {
+async function goto(page, url, findings, artifactDir) {
   try {
     const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
     await page.waitForLoadState("networkidle", { timeout: 3000 }).catch(() => undefined);
@@ -260,11 +208,7 @@ async function goto(
   }
 }
 
-function attachFailureListeners(
-  page: Page,
-  findings: WebAppAuditFinding[],
-  artifactDir: string,
-): void {
+function attachFailureListeners(page, findings, artifactDir) {
   page.on("console", async (message) => {
     if (message.type() !== "error") return;
     findings.push({
@@ -296,11 +240,7 @@ function attachFailureListeners(
   });
 }
 
-async function detectBlankPage(
-  page: Page,
-  findings: WebAppAuditFinding[],
-  artifactDir: string,
-): Promise<void> {
+async function detectBlankPage(page, findings, artifactDir) {
   const bodyText = await page.locator("body").innerText({ timeout: 2000 }).catch(() => "");
   const interactiveCount = await page
     .locator('a, button, input, select, textarea, [role="button"]')
@@ -318,7 +258,7 @@ async function detectBlankPage(
   }
 }
 
-async function discoverCandidates(page: Page): Promise<Candidate[]> {
+async function discoverCandidates(page) {
   const script = `(() => {
       const destructive = new RegExp(${JSON.stringify(destructivePattern.source)}, "i");
       const nodes = Array.from(
@@ -368,7 +308,7 @@ async function discoverCandidates(page: Page): Promise<Candidate[]> {
   return page.evaluate(script);
 }
 
-async function markCandidateByLabel(page: Page, candidate: Candidate): Promise<Candidate | null> {
+async function markCandidateByLabel(page, candidate) {
   const candidates = await discoverCandidates(page);
   return (
     candidates.find(
@@ -380,7 +320,7 @@ async function markCandidateByLabel(page: Page, candidate: Candidate): Promise<C
   );
 }
 
-function internalLinks(candidates: readonly Candidate[], targetUrl: string): string[] {
+function internalLinks(candidates, targetUrl) {
   const origin = new URL(targetUrl).origin;
   return candidates.flatMap((candidate) => {
     if (!candidate.href) return [];
@@ -395,7 +335,7 @@ function internalLinks(candidates: readonly Candidate[], targetUrl: string): str
   });
 }
 
-async function screenshot(page: Page, artifactDir: string, label: string): Promise<string | undefined> {
+async function screenshot(page, artifactDir, label) {
   try {
     const fileName = `${Date.now()}-${label}.png`;
     const absolutePath = path.join(artifactDir, fileName);
@@ -406,7 +346,7 @@ async function screenshot(page: Page, artifactDir: string, label: string): Promi
   }
 }
 
-async function createArtifactDir(url: string, configuredDir?: string): Promise<string> {
+async function createArtifactDir(url, configuredDir) {
   if (configuredDir && configuredDir.trim().length > 0) {
     const dir = path.resolve(configuredDir);
     await mkdir(dir, { recursive: true });
@@ -414,22 +354,12 @@ async function createArtifactDir(url: string, configuredDir?: string): Promise<s
   }
 
   const hash = createHash("sha256").update(url).digest("hex").slice(0, 10);
-  const dir = path.join(process.cwd(), ".eve-qa-artifacts", hash);
+  const dir = path.join(process.cwd(), "artifacts", hash);
   await mkdir(dir, { recursive: true });
   return dir;
 }
 
-function normalizeUrl(url: string): string {
-  const parsed = new URL(url);
-  parsed.hash = "";
-  return parsed.toString();
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, Math.floor(value)));
-}
-
-function buildExtraHTTPHeaders(input: WebAppAuditInput): Record<string, string> | undefined {
+function buildExtraHTTPHeaders(input) {
   if (!input.vercelAutomationBypassSecret) return undefined;
 
   return {
@@ -438,21 +368,85 @@ function buildExtraHTTPHeaders(input: WebAppAuditInput): Record<string, string> 
   };
 }
 
-function deriveStatus(findings: readonly WebAppAuditFinding[]): WebAppAuditResult["status"] {
+function normalizeUrl(url) {
+  const parsed = new URL(url);
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function deriveStatus(findings) {
   if (findings.some((finding) => finding.severity === "high")) return "fail";
   if (findings.length > 0) return "warning";
   return "pass";
 }
 
-function summarize(
-  status: WebAppAuditResult["status"],
-  pagesVisited: number,
-  clicksTested: number,
-  findings: number,
-): string {
+function summarize(status, pagesVisited, clicksTested, findings) {
   if (status === "pass") {
     return `No blocking issues found across ${pagesVisited} page(s) and ${clicksTested} click attempt(s).`;
   }
 
   return `Found ${findings} issue(s) across ${pagesVisited} page(s) and ${clicksTested} click attempt(s).`;
+}
+
+function formatMarkdown(result) {
+  const lines = [];
+
+  lines.push("## Agentic Web App QA");
+  lines.push("");
+  lines.push(`**Status:** ${result.status.toUpperCase()}`);
+  lines.push("");
+  lines.push(result.summary);
+  lines.push("");
+  lines.push(`- Target: ${result.targetUrl}`);
+  lines.push(`- Pages visited: ${result.pagesVisited.length}`);
+  lines.push(`- Click attempts: ${result.clicksTested.length}`);
+  lines.push(`- Findings: ${result.findings.length}`);
+  lines.push(`- Sandbox artifact directory: \`${result.artifactDir}\``);
+
+  lines.push("");
+  lines.push("### Findings");
+  lines.push("");
+  if (result.findings.length === 0) {
+    lines.push("No findings.");
+  } else {
+    for (const finding of result.findings) {
+      lines.push(
+        `- **${finding.severity.toUpperCase()} / ${finding.type}** on ${finding.url}: ${finding.message}`,
+      );
+      if (finding.screenshot) {
+        lines.push(`  - Screenshot artifact: \`${finding.screenshot}\``);
+      }
+    }
+  }
+
+  lines.push("");
+  lines.push("### Pages Visited");
+  lines.push("");
+  for (const page of result.pagesVisited) {
+    lines.push(`- ${page}`);
+  }
+
+  lines.push("");
+  lines.push("### Clicks Tested");
+  lines.push("");
+  if (result.clicksTested.length === 0) {
+    lines.push("No click attempts.");
+  } else {
+    for (const click of result.clicksTested) {
+      const suffix = click.reason ? ` - ${click.reason}` : "";
+      lines.push(`- ${click.result}: "${click.label}" (${click.tag}) on ${click.pageUrl}${suffix}`);
+    }
+  }
+
+  lines.push("");
+  lines.push(
+    "_This is a bounded smoke audit. It checks same-origin navigation, safe visible controls, console/page/network failures, and screenshots. It is not exhaustive UI proof yet._",
+  );
+  lines.push("");
+
+  return `${lines.join("\n")}\n`;
 }

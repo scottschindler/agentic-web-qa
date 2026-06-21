@@ -1,8 +1,8 @@
-import { getToken, type ConnectOptions, type ConnectTokenParams } from "@vercel/connect";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 
-const defaultConnector = "github/agentic-web-qa-github";
+import { getGitHubConnectToken, githubRequest } from "../lib/github_connect.js";
+
 const defaultMarker = "<!-- agentic-web-qa -->";
 
 interface GitHubComment {
@@ -35,10 +35,11 @@ export default defineTool({
     const repository = `${owner}/${repo}`;
     const marker = input.marker ?? defaultMarker;
     const body = `${marker}\n${input.reportMarkdown.trim()}\n`;
-    const token = await getGitHubToken({
+    const token = await getGitHubConnectToken({
       connector: input.connector,
       installationId: input.installationId,
       repository,
+      permissions: ["contents:read", "issues:write", "pull_requests:read"],
     });
 
     const comments = await githubRequest<GitHubComment[]>(
@@ -77,57 +78,3 @@ export default defineTool({
     };
   },
 });
-
-async function getGitHubToken(input: {
-  readonly connector?: string;
-  readonly installationId?: string;
-  readonly repository: string;
-}): Promise<string> {
-  const connector = input.connector ?? process.env.GITHUB_CONNECTOR ?? defaultConnector;
-  const installationId = input.installationId ?? process.env.GITHUB_CONNECT_INSTALLATION_ID;
-  const params: ConnectTokenParams = {
-    subject: { type: "app" },
-    authorizationDetails: [
-      {
-        type: "github_app_installation",
-        repositories: input.repository,
-        permissions: ["contents:read", "issues:write", "pull_requests:read"],
-      },
-    ],
-  };
-
-  if (installationId) {
-    params.installationId = installationId;
-  }
-
-  const options: ConnectOptions | undefined = process.env.VERCEL_TOKEN
-    ? { vercelToken: process.env.VERCEL_TOKEN }
-    : undefined;
-
-  return getToken(connector, params, options);
-}
-
-async function githubRequest<T>(
-  token: string,
-  method: "GET" | "PATCH" | "POST",
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const response = await fetch(`https://api.github.com${path}`, {
-    method,
-    headers: {
-      accept: "application/vnd.github+json",
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-      "x-github-api-version": "2022-11-28",
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`GitHub ${method} ${path} failed with ${response.status}: ${text}`);
-  }
-
-  return (await response.json()) as T;
-}

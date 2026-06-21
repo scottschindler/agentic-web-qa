@@ -1,0 +1,8 @@
+{
+  "name": "agentic-web-qa-sandbox-runner",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "latest"
+  }
+}

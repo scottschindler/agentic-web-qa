@@ -68,6 +68,8 @@ function parseArgs(args: readonly string[]): CliOptions {
       flags.get("max-clicks-per-page") ?? process.env.QA_MAX_CLICKS_PER_PAGE,
     ),
     artifactDir: flags.get("artifact-dir") ?? process.env.QA_ARTIFACT_DIR,
+    vercelAutomationBypassSecret:
+      flags.get("vercel-automation-bypass-secret") ?? process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
   };
 
   return {
