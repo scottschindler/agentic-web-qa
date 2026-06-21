@@ -1,0 +1,135 @@
+name: Agentic Web App QA
+description: Audit a web app URL with Playwright and publish a Markdown/JSON QA report.
+author: scottschindler
+
+branding:
+  icon: activity
+  color: black
+
+inputs:
+  url:
+    description: URL to audit. For Vercel preview PRs, pass github.event.deployment_status.environment_url.
+    required: true
+  max-pages:
+    description: Maximum same-origin pages to visit.
+    required: false
+    default: "5"
+  max-clicks-per-page:
+    description: Maximum visible non-link controls to click on each page.
+    required: false
+    default: "8"
+  output-dir:
+    description: Directory in the caller workspace where JSON, Markdown, and screenshot artifacts are written.
+    required: false
+    default: .agentic-web-app-qa
+  install-browsers:
+    description: Whether to install Playwright Chromium and OS dependencies.
+    required: false
+    default: "true"
+  fail-on-findings:
+    description: Whether to fail the workflow when any finding is reported.
+    required: false
+    default: "false"
+  login-url:
+    description: Optional login page URL.
+    required: false
+    default: ""
+  username:
+    description: Optional test-account username.
+    required: false
+    default: ""
+  password:
+    description: Optional test-account password.
+    required: false
+    default: ""
+  username-selector:
+    description: Optional CSS selector for the username field.
+    required: false
+    default: ""
+  password-selector:
+    description: Optional CSS selector for the password field.
+    required: false
+    default: ""
+  submit-selector:
+    description: Optional CSS selector for the login submit control.
+    required: false
+    default: ""
+
+outputs:
+  status:
+    description: pass, warning, or fail.
+    value: ${{ steps.audit.outputs.status }}
+  findings-count:
+    description: Number of findings in the audit.
+    value: ${{ steps.audit.outputs.findings-count }}
+  pages-visited:
+    description: Number of pages visited.
+    value: ${{ steps.audit.outputs.pages-visited }}
+  clicks-tested:
+    description: Number of click attempts recorded.
+    value: ${{ steps.audit.outputs.clicks-tested }}
+  json-path:
+    description: JSON report path in the caller workspace.
+    value: ${{ steps.audit.outputs.json-path }}
+  markdown-path:
+    description: Markdown report path in the caller workspace.
+    value: ${{ steps.audit.outputs.markdown-path }}
+  artifact-dir:
+    description: Screenshot artifact directory.
+    value: ${{ steps.audit.outputs.artifact-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: npm
+        cache-dependency-path: ${{ github.action_path }}/package-lock.json
+
+    - name: Install action dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci
+
+    - name: Install Playwright Chromium
+      if: ${{ inputs.install-browsers == 'true' }}
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npx playwright install --with-deps chromium
+
+    - name: Run audit
+      id: audit
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        QA_LOGIN_URL: ${{ inputs.login-url }}
+        QA_USERNAME: ${{ inputs.username }}
+        QA_PASSWORD: ${{ inputs.password }}
+        QA_USERNAME_SELECTOR: ${{ inputs.username-selector }}
+        QA_PASSWORD_SELECTOR: ${{ inputs.password-selector }}
+        QA_SUBMIT_SELECTOR: ${{ inputs.submit-selector }}
+        TARGET_URL: ${{ inputs.url }}
+        OUTPUT_DIR: ${{ github.workspace }}/${{ inputs.output-dir }}
+        REPORT_ROOT: ${{ github.workspace }}
+        MAX_PAGES: ${{ inputs.max-pages }}
+        MAX_CLICKS_PER_PAGE: ${{ inputs.max-clicks-per-page }}
+      run: |
+        mkdir -p "$OUTPUT_DIR"
+        npm run audit:url -- "$TARGET_URL" \
+          --max-pages "$MAX_PAGES" \
+          --max-clicks-per-page "$MAX_CLICKS_PER_PAGE" \
+          --artifact-dir "$OUTPUT_DIR/screenshots" \
+          --json "$OUTPUT_DIR/audit.json" \
+          --markdown "$OUTPUT_DIR/audit.md" \
+          --report-root "$REPORT_ROOT" \
+          --github-output "$GITHUB_OUTPUT" \
+          --github-summary "$GITHUB_STEP_SUMMARY"
+
+    - name: Fail on findings
+      if: ${{ inputs.fail-on-findings == 'true' && steps.audit.outputs.findings-count != '0' }}
+      shell: bash
+      run: |
+        echo "Agentic Web App QA found ${{ steps.audit.outputs.findings-count }} finding(s)."
+        exit 1

@@ -1,0 +1,49 @@
+{
+  "name": "agentic-web-qa",
+  "version": "0.1.0",
+  "description": "A reusable GitHub Action and Eve agent that audits web app previews with Playwright.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scottschindler/agentic-web-qa.git"
+  },
+  "bugs": {
+    "url": "https://github.com/scottschindler/agentic-web-qa/issues"
+  },
+  "homepage": "https://github.com/scottschindler/agentic-web-qa#readme",
+  "keywords": [
+    "agentic-qa",
+    "ai-agent",
+    "eve",
+    "github-action",
+    "playwright",
+    "preview-deployments",
+    "vercel"
+  ],
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "build": "eve build",
+    "dev": "eve dev",
+    "dev:server": "eve dev --no-ui",
+    "info": "eve info",
+    "audit:url": "tsx scripts/audit-url.ts",
+    "smoke": "tsx scripts/smoke-audit.ts",
+    "start": "eve start",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "ai": "latest",
+    "eve": "^0.11.7",
+    "just-bash": "^3.0.1",
+    "playwright": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}

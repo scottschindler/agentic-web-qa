@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Buggy App Fixture</title>
+    <style>
+      body {
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 32px;
+        max-width: 760px;
+      }
+
+      nav {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+
+      button,
+      a {
+        font: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/settings.html">Settings</a>
+      <a href="/missing.html">Missing page</a>
+    </nav>
+    <main>
+      <h1>Buggy App Fixture</h1>
+      <p>This page intentionally has a broken button and missing route for QA smoke tests.</p>
+      <button id="safe-button">Open details</button>
+      <button id="broken-button">Open broken panel</button>
+      <button>Delete account</button>
+      <section id="details" hidden>
+        <h2>Details</h2>
+        <p>The safe button worked.</p>
+      </section>
+    </main>
+    <script>
+      document.querySelector("#safe-button").addEventListener("click", () => {
+        document.querySelector("#details").hidden = false;
+      });
+
+      document.querySelector("#broken-button").addEventListener("click", () => {
+        console.error("Fixture console error: broken panel failed to load.");
+        throw new Error("Fixture page error: broken panel click crashed.");
+      });
+    </script>
+  </body>
+</html>

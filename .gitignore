@@ -1,0 +1,10 @@
+node_modules
+.eve
+.workflow-data
+.eve-qa-artifacts
+.agentic-web-app-qa
+.output
+.env
+.env.*
+!.env.example
+dist

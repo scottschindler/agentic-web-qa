@@ -1,0 +1,101 @@
+name: Agentic Web App QA
+
+on:
+  deployment_status:
+
+permissions:
+  contents: read
+  deployments: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  audit-vercel-preview:
+    name: Audit Vercel preview
+    runs-on: ubuntu-latest
+    if: >
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment_status.environment_url != '' &&
+      !contains(github.event.deployment.environment, 'Production')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run preview audit
+        id: qa
+        uses: ./
+        with:
+          url: ${{ github.event.deployment_status.environment_url }}
+          login-url: ${{ secrets.QA_LOGIN_URL }}
+          username: ${{ secrets.QA_USERNAME }}
+          password: ${{ secrets.QA_PASSWORD }}
+          username-selector: ${{ secrets.QA_USERNAME_SELECTOR }}
+          password-selector: ${{ secrets.QA_PASSWORD_SELECTOR }}
+          submit-selector: ${{ secrets.QA_SUBMIT_SELECTOR }}
+          max-pages: ${{ vars.QA_MAX_PAGES || '5' }}
+          max-clicks-per-page: ${{ vars.QA_MAX_CLICKS_PER_PAGE || '8' }}
+          output-dir: .agentic-web-app-qa
+          fail-on-findings: false
+
+      - name: Upload audit artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentic-web-app-qa
+          path: .agentic-web-app-qa
+          if-no-files-found: error
+
+      - name: Find pull request for deployment commit
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = context.payload.deployment.sha;
+            const response = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,
+              repo,
+              commit_sha: sha,
+              mediaType: { previews: ["groot"] },
+            });
+            const pr = response.data.find((item) => item.state === "open") ?? response.data[0];
+            core.setOutput("number", pr ? String(pr.number) : "");
+
+      - name: Comment audit report on PR
+        if: steps.pr.outputs.number != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("node:fs");
+            const marker = "<!-- agentic-web-app-qa -->";
+            const report = fs.readFileSync("${{ steps.qa.outputs.markdown-path }}", "utf8");
+            const body = `${marker}\n${report}`;
+            const { owner, repo } = context.repo;
+            const issue_number = Number("${{ steps.pr.outputs.number }}");
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) =>
+              comment.user?.type === "Bot" && comment.body?.includes(marker)
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
