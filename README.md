@@ -55,7 +55,7 @@ VERCEL_AUTOMATION_BYPASS_SECRET
 Notes:
 
 - `AI_GATEWAY_API_KEY` is only needed when the project is not using Vercel OIDC for AI Gateway.
-- `AGENTIC_WEB_QA_WEBHOOK_SECRET` protects the webhook endpoint.
+- `AGENTIC_WEB_QA_WEBHOOK_SECRET` should match the secret Vercel shows after creating the webhook. The channel verifies Vercel's `x-vercel-signature` header with this value.
 - `VERCEL_AUTOMATION_BYPASS_SECRET` is only needed when the preview app has Vercel Deployment Protection enabled.
 - `GITHUB_CONNECT_INSTALLATION_ID` is only needed when the GitHub connector has multiple installations.
 
@@ -89,10 +89,12 @@ issues:write
 In the Vercel dashboard for the app you want to audit, create a webhook for preview deployment-ready events and point it at the deployed Eve agent:
 
 ```text
-https://<agent-project>.vercel.app/eve/v1/vercel/deployment?secret=<AGENTIC_WEB_QA_WEBHOOK_SECRET>
+https://<agent-project>.vercel.app/eve/v1/vercel/deployment
 ```
 
-Use `deployment.ready` or `deployment.succeeded` events. The webhook channel ignores production deployments unless `AGENTIC_WEB_QA_AUDIT_PRODUCTION=true`.
+Use the `deployment.ready` event. The channel also accepts `deployment.succeeded`, but `deployment.ready` is the normal trigger for auditing a fresh preview URL. The webhook channel ignores production deployments unless `AGENTIC_WEB_QA_AUDIT_PRODUCTION=true`.
+
+After Vercel creates the webhook, copy the displayed webhook secret into the agent project's `AGENTIC_WEB_QA_WEBHOOK_SECRET` environment variable. For manual smoke tests, the same secret can be passed as `Authorization: Bearer <secret>`, `x-agentic-web-qa-secret`, or `?secret=<secret>`.
 
 The webhook extracts the deployment URL, target, deployment id, GitHub repo, and commit SHA from Vercel metadata. If GitHub metadata is present, Eve resolves the associated PR and posts the report. If metadata is missing or no PR is found, the agent still finishes the audit and returns the report.
 
@@ -355,7 +357,7 @@ Vercel Connect handles GitHub credentials. It does not replace the browser runne
 The direct CLI/action audit engine is in `agent/lib/web_qa.ts`. The hosted Eve path uses `agent/lib/sandbox_web_qa.ts`, which starts a sandbox session and runs the browser runner seeded under `agent/sandbox/workspace/browser-audit`.
 
 1. `agent/channels/vercel.ts` accepts Vercel deployment webhooks at `/eve/v1/vercel/deployment`.
-2. The channel validates the optional webhook secret, ignores non-ready events, and skips production by default.
+2. The channel verifies Vercel's `x-vercel-signature` when `AGENTIC_WEB_QA_WEBHOOK_SECRET` is set, ignores non-ready events, and skips production by default.
 3. The channel starts a durable Eve task with the deployment URL and GitHub metadata.
 4. `audit_web_app` calls `ctx.getSandbox()` and runs the Playwright audit in the Eve sandbox.
 5. On Vercel, `agent/sandbox/sandbox.ts` selects Vercel Sandbox. Locally, it uses the existing `just-bash` fallback.

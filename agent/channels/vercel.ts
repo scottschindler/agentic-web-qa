@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { defineChannel, POST } from "eve/channels";
 
@@ -26,11 +26,17 @@ interface VercelWebhookBody {
 export default defineChannel({
   routes: [
     POST("/deployment", async (request, { send, waitUntil }) => {
-      if (!isAuthorized(request)) {
+      const rawBody = Buffer.from(await request.arrayBuffer());
+
+      if (!isAuthorized(request, rawBody)) {
         return Response.json({ accepted: false, error: "unauthorized" }, { status: 401 });
       }
 
-      const body = (await request.json()) as VercelWebhookBody;
+      const body = parseWebhookBody(rawBody);
+      if (body === null) {
+        return Response.json({ accepted: false, error: "invalid JSON payload" }, { status: 400 });
+      }
+
       const eventType = body.type ?? "unknown";
 
       if (!isDeploymentReadyEvent(eventType)) {
@@ -69,51 +75,52 @@ export default defineChannel({
       const maxClicksPerPage =
         parseOptionalInt(process.env.AGENTIC_WEB_QA_MAX_CLICKS_PER_PAGE) ?? 8;
 
-      waitUntil(
-        send(
-          {
-            message: buildAuditMessage({
+      const sessionPromise = send(
+        {
+          message: buildAuditMessage({
+            deploymentUrl,
+            eventType,
+            target,
+            deploymentId,
+            projectName: deployment?.name ?? body.payload?.project?.name ?? body.payload?.name,
+            projectId: body.payload?.project?.id ?? body.payload?.projectId,
+            owner,
+            repo,
+            commitSha,
+            maxPages,
+            maxClicksPerPage,
+          }),
+          context: [
+            "This session was started by a Vercel deployment webhook.",
+            "Run as a task. Do not ask follow-up questions unless the deployment URL is unusable.",
+          ],
+        },
+        {
+          auth: {
+            authenticator: "vercel-webhook",
+            principalType: "service",
+            principalId: deploymentId,
+            attributes: compactAttributes({
+              deploymentId,
               deploymentUrl,
               eventType,
               target,
-              deploymentId,
-              projectName: deployment?.name ?? body.payload?.project?.name ?? body.payload?.name,
-              projectId: body.payload?.project?.id ?? body.payload?.projectId,
               owner,
               repo,
               commitSha,
-              maxPages,
-              maxClicksPerPage,
             }),
-            context: [
-              "This session was started by a Vercel deployment webhook.",
-              "Run as a task. Do not ask follow-up questions unless the deployment URL is unusable.",
-            ],
           },
-          {
-            auth: {
-              authenticator: "vercel-webhook",
-              principalType: "service",
-              principalId: deploymentId,
-              attributes: compactAttributes({
-                deploymentId,
-                deploymentUrl,
-                eventType,
-                target,
-                owner,
-                repo,
-                commitSha,
-              }),
-            },
-            continuationToken,
-            mode: "task",
-          },
-        ),
+          continuationToken,
+          mode: "task",
+        },
       );
+      waitUntil(sessionPromise);
+      const session = await sessionPromise;
 
       return Response.json(
         {
           accepted: true,
+          sessionId: session.id,
           eventType,
           target,
           deploymentUrl,
@@ -127,19 +134,41 @@ export default defineChannel({
   ],
 });
 
-function isAuthorized(request: Request): boolean {
+function parseWebhookBody(rawBody: Buffer): VercelWebhookBody | null {
+  try {
+    return JSON.parse(rawBody.toString("utf8")) as VercelWebhookBody;
+  } catch {
+    return null;
+  }
+}
+
+function isAuthorized(request: Request, rawBody: Buffer): boolean {
   const secret = process.env.AGENTIC_WEB_QA_WEBHOOK_SECRET;
   if (!secret) return true;
 
   const url = new URL(request.url);
+  const vercelSignature = request.headers.get("x-vercel-signature");
   const authorization = request.headers.get("authorization");
   const headerSecret = request.headers.get("x-agentic-web-qa-secret");
+
+  if (vercelSignature) {
+    return verifyVercelSignature(rawBody, vercelSignature, secret);
+  }
 
   return (
     authorization === `Bearer ${secret}` ||
     headerSecret === secret ||
     url.searchParams.get("secret") === secret
   );
+}
+
+function verifyVercelSignature(rawBody: Buffer, signature: string, secret: string): boolean {
+  const expected = createHmac("sha1", secret).update(rawBody).digest("hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+  const actualBuffer = Buffer.from(signature, "hex");
+
+  if (expectedBuffer.length !== actualBuffer.length) return false;
+  return timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
 function isDeploymentReadyEvent(eventType: string): boolean {
