@@ -1,6 +1,6 @@
 # Agentic Web App QA
 
-Agentic Web App QA is a reusable GitHub Action and Eve demo agent that audits web app previews with Playwright.
+Agentic Web App QA is an Eve browser agent and reusable GitHub Action that audits web app previews with Playwright.
 
 Give it a URL. It opens Chromium, optionally logs in with a test account, crawls a bounded set of same-origin pages, clicks safe visible controls, records browser/runtime failures, saves screenshots, and writes Markdown plus JSON reports.
 
@@ -260,6 +260,49 @@ Audit https://your-preview-url.vercel.app. Visit up to 5 pages and click up to 8
 
 The Eve agent is useful for interactive demos. The GitHub Action is the easiest way for other projects to use the audit in CI.
 
+## Optional: Vercel Connect for GitHub
+
+The Eve agent can publish or update a pull request report through Vercel Connect. This lets the agent request a short-lived, scoped GitHub token at runtime instead of storing a long-lived GitHub token in environment variables.
+
+Create and attach a GitHub connector to the Vercel project that runs this agent:
+
+```bash
+vercel link
+vercel connect create github --name agentic-web-qa-github
+vercel connect attach github/agentic-web-qa-github --environment production
+vercel connect attach github/agentic-web-qa-github --environment preview
+vercel connect attach github/agentic-web-qa-github --environment development
+```
+
+Save the connector UID in the project environment:
+
+```bash
+printf 'github/agentic-web-qa-github' | vercel env add GITHUB_CONNECTOR
+vercel env pull .env.local
+```
+
+If the connector has access to multiple GitHub installations, also set:
+
+```text
+GITHUB_CONNECT_INSTALLATION_ID=inst_...
+```
+
+The `publish_github_pr_report` Eve tool requests only the GitHub permissions it needs:
+
+```text
+contents:read
+pull_requests:read
+issues:write
+```
+
+Then you can prompt the Eve agent:
+
+```text
+Audit https://your-preview-url.vercel.app and publish the report to scottschindler/my-app PR #123.
+```
+
+Vercel Connect handles GitHub credentials. It does not replace the browser runner or deployment trigger by itself. Use the GitHub Action, a Vercel webhook, or a future Checks API integration to start the audit after a preview deployment is ready.
+
 ## How It Works
 
 The core audit engine is in `agent/lib/web_qa.ts`.
@@ -274,6 +317,7 @@ The core audit engine is in `agent/lib/web_qa.ts`.
 8. Records console errors, page errors, network failures, navigation failures, blank pages, and click failures.
 9. Saves screenshots under the artifact directory.
 10. Writes Markdown and JSON reports.
+11. Optionally publishes the Markdown report to a GitHub PR with a Vercel Connect GitHub token.
 
 ## Current Limits
 
@@ -281,6 +325,7 @@ The core audit engine is in `agent/lib/web_qa.ts`.
 - It does not understand app-specific business rules.
 - It avoids obvious destructive controls by label, but you should still use low-permission test accounts.
 - It currently clicks one page/control at a time; deeper stateful flows are future work.
+- Vercel Connect support publishes PR comments, but it does not yet provide a full Vercel-native deployment check.
 - It does not yet create GitHub issues or Linear tickets automatically.
 
 ## Development

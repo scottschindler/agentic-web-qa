@@ -35,6 +35,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@vercel/connect": "^0.2.6",
     "ai": "latest",
     "eve": "^0.11.7",
     "just-bash": "^3.0.1",
