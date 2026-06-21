@@ -391,9 +391,10 @@ The direct CLI/action audit engine is in `agent/lib/web_qa.ts`. The hosted Eve w
 npm install
 npm run typecheck
 npm run smoke
+npm run verify:webhook
 ```
 
-The smoke test serves `fixtures/buggy-app` and verifies that the audit finds intentional fixture bugs. CI runs the same typecheck and smoke test on pull requests.
+The smoke test serves `fixtures/buggy-app` and verifies that the audit finds intentional fixture bugs. The webhook verifier exercises signed Vercel webhook parsing and confirms the channel starts the Eve task with the orchestration tool prompt. CI runs the same typecheck and smoke test on pull requests.
 
 ## License
 
