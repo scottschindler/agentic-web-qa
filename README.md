@@ -2,7 +2,7 @@
 
 Agentic Web App QA is an Eve browser agent that audits Vercel preview deployments with Playwright, Vercel Sandbox, durable Eve tasks, and short-lived GitHub tokens from Vercel Connect.
 
-Give it a preview URL. Eve starts a durable audit task, runs Chromium inside a sandbox, optionally logs in with a test account, crawls a bounded set of same-origin pages, clicks safe visible controls, records browser/runtime failures, saves screenshots, writes Markdown plus JSON reports, and can publish one sticky PR report.
+Give it a preview URL. Eve starts a durable audit task, runs Chromium inside a sandbox, optionally logs in with a test account, crawls a bounded set of same-origin pages, clicks safe visible controls, records browser/runtime failures, saves screenshots, writes Markdown plus JSON reports, and can publish a commit check plus one sticky PR report.
 
 The goal is not to replace a full Playwright suite. The goal is a useful first autonomous smoke test for preview deployments.
 
@@ -30,7 +30,7 @@ Vercel Preview Deployment ready
 -> audit_web_app runs Playwright in Vercel Sandbox
 -> Eve summarizes JSON, Markdown, and screenshot artifact paths
 -> Vercel Connect gets a scoped GitHub token
--> Eve posts or updates a PR comment
+-> Eve posts or updates a GitHub Check Run and PR comment
 ```
 
 ### 1. Deploy the Eve agent
@@ -81,6 +81,8 @@ The agent requests only these GitHub permissions at runtime:
 ```text
 contents:read
 pull_requests:read
+checks:read
+checks:write
 issues:write
 ```
 
@@ -96,7 +98,7 @@ Use the `deployment.ready` event. The channel also accepts `deployment.succeeded
 
 After Vercel creates the webhook, copy the displayed webhook secret into the agent project's `AGENTIC_WEB_QA_WEBHOOK_SECRET` environment variable. For manual smoke tests, the same secret can be passed as `Authorization: Bearer <secret>`, `x-agentic-web-qa-secret`, or `?secret=<secret>`.
 
-The webhook extracts the deployment URL, target, deployment id, GitHub repo, and commit SHA from Vercel metadata. If GitHub metadata is present, Eve resolves the associated PR and posts the report. If metadata is missing or no PR is found, the agent still finishes the audit and returns the report.
+The webhook extracts the deployment URL, target, deployment id, GitHub repo, and commit SHA from Vercel metadata. If GitHub metadata is present, Eve publishes a completed GitHub Check Run for the commit, resolves the associated PR, and posts the report as a sticky comment when a PR exists. If metadata is missing, the agent still finishes the audit and returns the report.
 
 ## Optional: GitHub Action
 
@@ -350,7 +352,7 @@ Then you can prompt the Eve agent:
 Audit https://your-preview-url.vercel.app and publish the report to scottschindler/my-app PR #123.
 ```
 
-Vercel Connect handles GitHub credentials. It does not replace the browser runner or deployment trigger by itself. In the Vercel-native flow, the Vercel webhook starts the Eve task and Connect only supplies the scoped GitHub token used to resolve and comment on the PR.
+Vercel Connect handles GitHub credentials. It does not replace the browser runner or deployment trigger by itself. In the Vercel-native flow, the Vercel webhook starts the Eve task and Connect only supplies the scoped GitHub token used to create the check run, resolve the PR, and comment on the PR.
 
 ## How It Works
 
@@ -364,8 +366,9 @@ The direct CLI/action audit engine is in `agent/lib/web_qa.ts`. The hosted Eve p
 6. The sandbox runner installs Playwright, launches Chromium, crawls same-origin pages, clicks safe controls, and records console/page/network failures.
 7. The runner writes JSON, Markdown, and screenshot artifacts inside the sandbox workspace.
 8. Eve summarizes the result for the user or webhook task.
-9. If repo and commit metadata are present, `resolve_github_pull_request` asks Vercel Connect for a scoped GitHub token and finds the associated PR.
-10. `publish_github_pr_report` asks Connect for a scoped token with comment permissions and creates or updates one sticky PR report.
+9. If repo and commit metadata are present, `publish_github_check_run` asks Vercel Connect for a scoped GitHub token with check permissions and creates or updates a completed check run for the commit.
+10. `resolve_github_pull_request` asks Vercel Connect for a scoped GitHub token and finds the associated PR.
+11. `publish_github_pr_report` asks Connect for a scoped token with comment permissions and creates or updates one sticky PR report when a PR is available.
 
 ## Current Limits
 
@@ -373,7 +376,7 @@ The direct CLI/action audit engine is in `agent/lib/web_qa.ts`. The hosted Eve p
 - It does not understand app-specific business rules.
 - It avoids obvious destructive controls by label, but you should still use low-permission test accounts.
 - It currently clicks one page/control at a time; deeper stateful flows are future work.
-- The Vercel-native path currently publishes PR comments. A first-class Vercel deployment check can be added on top of the same webhook/task result.
+- The Vercel-native path publishes GitHub Check Runs, not native Vercel deployment checks.
 - It does not yet create GitHub issues or Linear tickets automatically.
 
 ## Development

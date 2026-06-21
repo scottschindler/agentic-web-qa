@@ -2,7 +2,12 @@ import { getToken, type ConnectOptions, type ConnectTokenParams } from "@vercel/
 
 export const defaultGitHubConnector = "github/agentic-web-qa-github";
 
-export type GitHubConnectPermission = "contents:read" | "issues:write" | "pull_requests:read";
+export type GitHubConnectPermission =
+  | "checks:read"
+  | "checks:write"
+  | "contents:read"
+  | "issues:write"
+  | "pull_requests:read";
 
 export async function getGitHubConnectToken(input: {
   readonly connector?: string;

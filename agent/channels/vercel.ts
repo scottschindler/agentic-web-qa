@@ -218,12 +218,13 @@ function buildAuditMessage(input: {
 
   if (input.owner && input.repo && input.commitSha) {
     lines.push(
-      `3. Call resolve_github_pull_request for ${input.owner}/${input.repo} at ${input.commitSha}.`,
-      "4. If a pull request is found, call publish_github_pr_report with the audit reportMarkdown returned by audit_web_app.",
-      "5. If no pull request is found, finish with the report and state that publishing was skipped.",
+      `3. Call publish_github_check_run for ${input.owner}/${input.repo} at ${input.commitSha}, using deployment ID ${input.deploymentId} as externalId, the audit status as auditStatus, and reportMarkdown from audit_web_app.`,
+      `4. Call resolve_github_pull_request for ${input.owner}/${input.repo} at ${input.commitSha}.`,
+      "5. If a pull request is found, call publish_github_pr_report with the audit reportMarkdown returned by audit_web_app.",
+      "6. If no pull request is found, finish with the report and the GitHub check result.",
     );
   } else {
-    lines.push("3. GitHub repository metadata was missing, so finish with the report and skip PR publishing.");
+    lines.push("3. GitHub repository metadata was missing, so finish with the report and skip GitHub publishing.");
   }
 
   return `${lines.filter(Boolean).join("\n")}\n`;
