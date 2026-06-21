@@ -214,17 +214,18 @@ function buildAuditMessage(input: {
     "Steps:",
     `1. Call audit_web_app with url=${JSON.stringify(input.deploymentUrl)}, maxPages=${input.maxPages}, maxClicksPerPage=${input.maxClicksPerPage}.`,
     "2. Summarize the highest-priority findings, pages visited, clicks tested, skipped destructive controls, and screenshot artifact paths.",
+    `3. Call publish_vercel_deployment_check with deploymentId=${JSON.stringify(input.deploymentId)}, externalId=${JSON.stringify(input.deploymentId)}, the audit status as auditStatus, and reportMarkdown from audit_web_app. If it returns skipped, continue.`,
   ];
 
   if (input.owner && input.repo && input.commitSha) {
     lines.push(
-      `3. Call publish_github_check_run for ${input.owner}/${input.repo} at ${input.commitSha}, using deployment ID ${input.deploymentId} as externalId, the audit status as auditStatus, and reportMarkdown from audit_web_app.`,
-      `4. Call resolve_github_pull_request for ${input.owner}/${input.repo} at ${input.commitSha}.`,
-      "5. If a pull request is found, call publish_github_pr_report with the audit reportMarkdown returned by audit_web_app.",
-      "6. If no pull request is found, finish with the report and the GitHub check result.",
+      `4. Call publish_github_check_run for ${input.owner}/${input.repo} at ${input.commitSha}, using deployment ID ${input.deploymentId} as externalId, the audit status as auditStatus, and reportMarkdown from audit_web_app.`,
+      `5. Call resolve_github_pull_request for ${input.owner}/${input.repo} at ${input.commitSha}.`,
+      "6. If a pull request is found, call publish_github_pr_report with the audit reportMarkdown returned by audit_web_app.",
+      "7. If no pull request is found, finish with the report and the check results.",
     );
   } else {
-    lines.push("3. GitHub repository metadata was missing, so finish with the report and skip GitHub publishing.");
+    lines.push("4. GitHub repository metadata was missing, so finish with the report and skip GitHub publishing.");
   }
 
   return `${lines.filter(Boolean).join("\n")}\n`;
